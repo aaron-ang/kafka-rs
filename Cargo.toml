@@ -25,4 +25,4 @@ hex = "0.4.3"
 integer-encoding = "4.0.2"
 num_enum = "0.7.3"
 thiserror = "1.0.32"                                # error handling
-tokio = { version = "1.23.0", features = ["full"] } # async networking
+tokio = { version = "1.43.1", features = ["full"] } # async networking
