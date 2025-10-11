@@ -1,3 +1,9 @@
+use std::{
+    collections::HashMap,
+    env, fs,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+};
+
 use anyhow::{anyhow, Result};
 use bytes::{BufMut, Bytes, BytesMut};
 use tokio::{
@@ -7,21 +13,54 @@ use tokio::{
 
 use kafka_starter_rust::*;
 
+const PORT: &str = "9092";
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    println!("Logs from your program will appear here!");
+    let args: Vec<String> = env::args().collect();
 
-    let listener = TcpListener::bind("127.0.0.1:9092").await?;
+    let properties = if let Some(path) = args.get(1) {
+        Some(parse_properties_file(path)?)
+    } else {
+        None
+    };
+
+    let port = properties
+        .as_ref()
+        .and_then(|props| props.get("port"))
+        .map(|v| v.as_str())
+        .unwrap_or(PORT)
+        .parse::<u16>()
+        .map_err(|e| anyhow!("Invalid port number: {e}"))?;
+
+    let bind_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+    let listener = TcpListener::bind(&bind_addr).await?;
+    println!("Started Kafka server on {bind_addr}");
 
     loop {
         let (stream, _) = listener.accept().await?;
         tokio::spawn(async move {
             println!("accepted new connection");
             if let Err(e) = handle_conn(stream).await {
-                eprintln!("error: {}", e);
+                eprintln!("error: {e}");
             }
         });
     }
+}
+
+fn parse_properties_file(path: &str) -> Result<HashMap<String, String>> {
+    let content = fs::read_to_string(path)?;
+    let mut properties = HashMap::new();
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if let Some((key, value)) = line.split_once('=') {
+            properties.insert(key.trim().to_string(), value.trim().to_string());
+        }
+    }
+    Ok(properties)
 }
 
 async fn handle_conn(mut stream: TcpStream) -> Result<()> {
@@ -55,16 +94,20 @@ fn process_message(message: &mut Bytes) -> Result<Box<dyn Response + Send>> {
     };
     println!("request: {:?}", message.to_vec());
     let response: Box<dyn Response + Send> = match request_api_key {
-        ApiKey::Fetch => {
-            let res = fetch::handle_request(header, message)?;
-            Box::new(res)
-        }
         ApiKey::ApiVersions => {
             let res = api_versions::ApiVersionsResponseV3::new(header);
             Box::new(res)
         }
         ApiKey::DescribeTopicPartitions => {
             let res = describe_topic_partitions::handle_request(header, message)?;
+            Box::new(res)
+        }
+        ApiKey::Fetch => {
+            let res = fetch::handle_request(header, message)?;
+            Box::new(res)
+        }
+        ApiKey::Produce => {
+            let res = produce::handle_request(header, message)?;
             Box::new(res)
         }
     };

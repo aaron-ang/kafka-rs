@@ -2,23 +2,30 @@ use bytes::{BufMut, Bytes, BytesMut};
 
 use crate::protocol::*;
 
-const API_KEYS: [ApiVersionsApiKey; 3] = [
-    ApiVersionsApiKey {
-        key: ApiKey::ApiVersions,
-        min_version: 0,
-        max_version: 4,
-    },
-    ApiVersionsApiKey {
-        key: ApiKey::DescribeTopicPartitions,
-        min_version: 0,
-        max_version: 0,
-    },
-    ApiVersionsApiKey {
-        key: ApiKey::Fetch,
-        min_version: 0,
-        max_version: 16,
-    },
-];
+fn get_api_keys() -> Vec<ApiVersionsApiKey> {
+    vec![
+        ApiVersionsApiKey {
+            key: ApiKey::Produce,
+            min_version: 0,
+            max_version: 11,
+        },
+        ApiVersionsApiKey {
+            key: ApiKey::Fetch,
+            min_version: 0,
+            max_version: 16,
+        },
+        ApiVersionsApiKey {
+            key: ApiKey::ApiVersions,
+            min_version: 0,
+            max_version: 4,
+        },
+        ApiVersionsApiKey {
+            key: ApiKey::DescribeTopicPartitions,
+            min_version: 0,
+            max_version: 0,
+        },
+    ]
+}
 
 pub struct ApiVersionsResponseV3 {
     header: HeaderV0,
@@ -39,7 +46,7 @@ impl ApiVersionsResponseV3 {
         Self {
             header,
             error_code,
-            api_keys: CompactArray(API_KEYS.to_vec()),
+            api_keys: CompactArray(get_api_keys()),
             throttle_time_ms: 0,
         }
     }
