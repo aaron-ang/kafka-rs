@@ -22,6 +22,7 @@ pub trait Deserialize<T> {
 #[derive(Clone, Copy, IntoPrimitive, TryFromPrimitive)]
 #[repr(i16)]
 pub enum ApiKey {
+    Produce = 0,
     Fetch = 1,
     ApiVersions = 18,
     DescribeTopicPartitions = 75,
@@ -145,22 +146,16 @@ pub struct CompactNullableString(pub Option<String>);
 
 impl Serialize for CompactNullableString {
     fn serialize(&self) -> Bytes {
-        match &self.0 {
-            Some(s) => {
-                let len = s.len() + 1;
-                let mut b = BytesMut::zeroed(len);
-                let n = len.encode_var(&mut b);
-                b.truncate(n);
-                b.put(s.as_bytes());
-                b.freeze()
-            }
-            None => {
-                let mut b = BytesMut::zeroed(1);
-                let n = 0.encode_var(&mut b);
-                b.truncate(n);
-                b.freeze()
-            }
+        let len = match &self.0 {
+            Some(s) => s.len() as u64 + 1,
+            None => 0,
+        };
+        let mut b = BytesMut::new();
+        b.put_slice(&len.encode_var_vec());
+        if let Some(s) = &self.0 {
+            b.put(s.as_bytes());
         }
+        b.freeze()
     }
 }
 
@@ -181,14 +176,13 @@ pub struct CompactArray<T>(pub Vec<T>);
 
 impl<T: Serialize> Serialize for CompactArray<T> {
     fn serialize(&self) -> Bytes {
-        let len = self.0.len() + 1;
-        let mut b = BytesMut::zeroed(len);
-        let n = len.encode_var(&mut b);
-        b.truncate(n);
+        let len = self.0.len() as u64 + 1;
+        let mut buf = BytesMut::new();
+        buf.put_slice(&len.encode_var_vec());
         for item in &self.0 {
-            b.put(item.serialize());
+            buf.put(item.serialize());
         }
-        b.freeze()
+        buf.freeze()
     }
 }
 
@@ -205,6 +199,35 @@ where
             items.push(T::deserialize(src));
         }
         items
+    }
+}
+
+pub struct CompactNullableBytes(pub Option<Bytes>);
+
+impl Serialize for CompactNullableBytes {
+    fn serialize(&self) -> Bytes {
+        let len = match &self.0 {
+            Some(b) => b.len() as u64 + 1,
+            None => 0,
+        };
+        let mut b = BytesMut::new();
+        b.put_slice(&len.encode_var_vec());
+        if let Some(bytes) = &self.0 {
+            b.put(bytes.clone());
+        }
+        b.freeze()
+    }
+}
+
+impl Deserialize<Self> for CompactNullableBytes {
+    fn deserialize(src: &mut Bytes) -> Self {
+        let (len, read) = u32::decode_var(src).expect("Failed to decode length");
+        src.advance(read);
+        if len == 0 {
+            return Self(None);
+        }
+        let bytes = src.split_to(len as usize - 1);
+        Self(Some(bytes))
     }
 }
 
@@ -236,5 +259,19 @@ impl TagBuffer {
 impl Deserialize<u8> for TagBuffer {
     fn deserialize(src: &mut Bytes) -> u8 {
         src.get_u8()
+    }
+}
+
+impl Deserialize<Self> for u32 {
+    fn deserialize(src: &mut Bytes) -> Self {
+        src.get_u32()
+    }
+}
+
+impl Deserialize<Self> for i64 {
+    fn deserialize(src: &mut Bytes) -> Self {
+        let (val, read) = i64::decode_var(src).expect("Failed to decode var i64");
+        src.advance(read);
+        val
     }
 }

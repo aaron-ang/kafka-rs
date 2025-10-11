@@ -6,8 +6,8 @@ use crate::protocol::*;
 
 const DEFAULT_UNKNOWN_TOPIC_UUID: &str = "00000000-0000-0000-0000-000000000000";
 
-pub struct DescribeTopicPartitionsRequestV0 {
-    pub topic_names: Vec<CompactNullableString>,
+struct DescribeTopicPartitionsRequestV0 {
+    topic_names: Vec<CompactNullableString>,
     response_partition_limit: i32,
     cursor: u8,
 }
@@ -36,7 +36,7 @@ pub struct DescribeTopicPartitionsResponseV0 {
 }
 
 impl DescribeTopicPartitionsResponseV0 {
-    pub fn new(correlation_id: i32, topics: Vec<Topic>) -> Self {
+    fn new(correlation_id: i32, topics: Vec<Topic>) -> Self {
         Self {
             header: HeaderV1::new(correlation_id),
             throttle_time_ms: 0,
@@ -129,13 +129,13 @@ pub fn handle_request(
 }
 
 #[derive(Debug)]
-pub struct Topic {
-    pub error_code: ErrorCode,
-    pub name: CompactNullableString,
-    pub topic_id: Uuid,
-    pub is_internal: bool,
-    pub partitions: CompactArray<Partition>,
-    pub topic_authorized_operations: i32,
+struct Topic {
+    error_code: ErrorCode,
+    name: CompactNullableString,
+    topic_id: Uuid,
+    is_internal: bool,
+    partitions: CompactArray<Partition>,
+    topic_authorized_operations: i32,
 }
 
 impl Serialize for Topic {
@@ -161,7 +161,7 @@ impl Deserialize<CompactNullableString> for Topic {
 }
 
 #[derive(Debug)]
-pub struct Partition {
+struct Partition {
     error_code: ErrorCode,
     partition_index: u32,
     leader_id: u32,

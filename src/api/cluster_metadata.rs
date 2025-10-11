@@ -2,7 +2,6 @@ use std::path::Path;
 
 use anyhow::Result;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-use integer_encoding::*;
 use num_enum::TryFromPrimitive;
 
 use crate::protocol::*;
@@ -51,7 +50,7 @@ impl RecordBatches {
 }
 
 pub struct RecordBatch {
-    pub base_offset: i64,
+    base_offset: i64,
     batch_length: i32,
     partition_leader_epoch: i32,
     magic: i8,
@@ -67,7 +66,7 @@ pub struct RecordBatch {
 }
 
 impl RecordBatch {
-    pub fn from_bytes(src: &mut Bytes) -> Result<Self> {
+    fn from_bytes(src: &mut Bytes) -> Result<Self> {
         let base_offset = src.get_i64();
         let batch_length = src.get_i32();
         let partition_leader_epoch = src.get_i32();
@@ -81,7 +80,7 @@ impl RecordBatch {
         let producer_epoch = src.get_i16();
         let base_sequence = src.get_i32();
 
-        let records = NullableBytes::<RecordBatch>::deserialize(src);
+        let records = NullableBytes::<Record>::deserialize(src);
         Ok(Self {
             base_offset,
             batch_length,
@@ -97,12 +96,6 @@ impl RecordBatch {
             base_sequence,
             records,
         })
-    }
-}
-
-impl Deserialize<Record> for RecordBatch {
-    fn deserialize(src: &mut Bytes) -> Record {
-        Record::from_bytes(src)
     }
 }
 
@@ -136,23 +129,23 @@ pub struct Record {
     headers: Vec<Header>,
 }
 
-impl Record {
-    pub fn from_bytes(src: &mut Bytes) -> Self {
-        let length = decode_var_i64(src);
+impl Deserialize<Self> for Record {
+    fn deserialize(src: &mut Bytes) -> Self {
+        let length = i64::deserialize(src);
         let attributes = src.get_i8();
-        let timestamp_delta = decode_var_i64(src);
-        let offset_delta = decode_var_i64(src);
+        let timestamp_delta = i64::deserialize(src);
+        let offset_delta = i64::deserialize(src);
 
-        let key_len = decode_var_i64(src);
+        let key_len = i64::deserialize(src);
         let key = if key_len > 0 {
             src.split_to(key_len as usize).to_vec()
         } else {
             Vec::new()
         };
 
-        let value_length = decode_var_i64(src);
+        let value_length = i64::deserialize(src);
         let value = RecordValue::from_bytes(src);
-        let headers = CompactArray::<Record>::deserialize(src);
+        let headers = CompactArray::<Header>::deserialize(src);
 
         Self {
             length,
@@ -167,19 +160,14 @@ impl Record {
     }
 }
 
-fn decode_var_i64(src: &mut Bytes) -> i64 {
-    let (val, read) = i64::decode_var(src).expect("Failed to decode var i64");
-    src.advance(read);
-    val
-}
+// TODO: Implement Header
+struct Header;
 
-impl Deserialize<Header> for Record {
-    fn deserialize(_: &mut Bytes) -> Header {
+impl Deserialize<Self> for Header {
+    fn deserialize(_: &mut Bytes) -> Self {
         Header
     }
 }
-
-struct Header;
 
 pub enum RecordValue {
     FeatureLevel(FeatureLevelValue),
@@ -201,23 +189,11 @@ pub struct PartitionValue {
     pub adding_replicas: Vec<u32>,
     pub leader_id: u32,
     pub leader_epoch: u32,
-    pub partition_epoch: u32,
-    pub directories: Vec<Uuid>,
+    partition_epoch: u32,
+    directories: Vec<Uuid>,
 }
 
-impl Deserialize<u32> for PartitionValue {
-    fn deserialize(src: &mut Bytes) -> u32 {
-        src.get_u32()
-    }
-}
-
-impl Deserialize<Uuid> for PartitionValue {
-    fn deserialize(src: &mut Bytes) -> Uuid {
-        Uuid::deserialize(src)
-    }
-}
-
-pub struct FeatureLevelValue {
+struct FeatureLevelValue {
     name: CompactNullableString,
     level: u16,
 }
@@ -231,7 +207,7 @@ enum RecordType {
 }
 
 impl RecordValue {
-    pub fn from_bytes(src: &mut Bytes) -> Self {
+    fn from_bytes(src: &mut Bytes) -> Self {
         assert_eq!(src.get_u8(), 1); // frame_version
         let record_type = RecordType::try_from(src.get_u8()).unwrap();
         let version = src.get_u8();
@@ -248,14 +224,14 @@ impl RecordValue {
                 assert_eq!(version, 1);
                 let partition_id = src.get_u32();
                 let topic_id = Uuid::deserialize(src);
-                let replicas = CompactArray::<PartitionValue>::deserialize(src);
-                let in_sync_replicas = CompactArray::<PartitionValue>::deserialize(src);
-                let removing_replicas = CompactArray::<PartitionValue>::deserialize(src);
-                let adding_replicas = CompactArray::<PartitionValue>::deserialize(src);
+                let replicas = CompactArray::<u32>::deserialize(src);
+                let in_sync_replicas = CompactArray::<u32>::deserialize(src);
+                let removing_replicas = CompactArray::<u32>::deserialize(src);
+                let adding_replicas = CompactArray::<u32>::deserialize(src);
                 let leader_id = src.get_u32();
                 let leader_epoch = src.get_u32();
                 let partition_epoch = src.get_u32();
-                let directories = CompactArray::<PartitionValue>::deserialize(src);
+                let directories = CompactArray::<Uuid>::deserialize(src);
                 RecordValue::Partition(PartitionValue {
                     partition_id,
                     topic_id,
@@ -278,7 +254,7 @@ impl RecordValue {
             }
         };
 
-        let tagged_fields_count = decode_var_i64(src);
+        let tagged_fields_count = i64::deserialize(src);
         assert_eq!(tagged_fields_count, 0);
         value
     }
