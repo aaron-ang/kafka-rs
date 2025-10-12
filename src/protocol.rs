@@ -127,13 +127,56 @@ impl Deserialize<Self> for Uuid {
     }
 }
 
+#[derive(Clone, PartialEq, PartialOrd, Ord, Eq)]
+pub struct CompactString(pub String);
+
+impl Serialize for CompactString {
+    fn serialize(&self) -> Bytes {
+        let len = self.0.len() as u64 + 1;
+        let mut b = BytesMut::new();
+        b.put_slice(&len.encode_var_vec());
+        b.put(self.0.as_bytes());
+        b.freeze()
+    }
+}
+
+impl Deserialize<Self> for CompactString {
+    fn deserialize(src: &mut Bytes) -> Self {
+        let (len, read) = u32::decode_var(src).expect("Failed to decode length");
+        src.advance(read);
+        let bytes = src.split_to(len as usize - 1);
+        Self(String::from_utf8(bytes.to_vec()).unwrap())
+    }
+}
+
+impl From<CompactString> for CompactNullableString {
+    fn from(s: CompactString) -> Self {
+        CompactNullableString(Some(s.0))
+    }
+}
+
+impl PartialEq<CompactString> for CompactNullableString {
+    fn eq(&self, other: &CompactString) -> bool {
+        match &self.0 {
+            Some(s) => s == &other.0,
+            None => false,
+        }
+    }
+}
+
+impl PartialEq<CompactNullableString> for CompactString {
+    fn eq(&self, other: &CompactNullableString) -> bool {
+        other == self
+    }
+}
+
 pub struct NullableString(pub Option<String>);
 
 impl Deserialize<Self> for NullableString {
     fn deserialize(src: &mut Bytes) -> Self {
         let len = src.get_i16();
         let string_len = if len == -1 { 0 } else { len as usize };
-        if string_len == 0 || src.remaining() < string_len {
+        if string_len == 0 {
             return Self(None);
         }
         let bytes = src.split_to(string_len);
@@ -163,7 +206,7 @@ impl Deserialize<Self> for CompactNullableString {
     fn deserialize(src: &mut Bytes) -> Self {
         let (len, read) = u32::decode_var(src).expect("Failed to decode length");
         src.advance(read);
-        if len == 0 || src.remaining() < (len as usize - 1) {
+        if len == 0 {
             return Self(None);
         }
         let bytes = src.split_to(len as usize - 1);
@@ -191,7 +234,7 @@ where
     T: Deserialize<U>,
 {
     fn deserialize(src: &mut Bytes) -> Vec<U> {
-        let (len, read) = u64::decode_var(src).expect("Failed to decode length");
+        let (len, read) = u32::decode_var(src).expect("Failed to decode length");
         src.advance(read);
         let items_count = if len > 1 { len as usize - 1 } else { 0 };
         let mut items = Vec::with_capacity(items_count);
@@ -262,9 +305,31 @@ impl Deserialize<u8> for TagBuffer {
     }
 }
 
+impl Serialize for u32 {
+    fn serialize(&self) -> Bytes {
+        let mut b = BytesMut::new();
+        b.put_u32(*self);
+        b.freeze()
+    }
+}
+
 impl Deserialize<Self> for u32 {
     fn deserialize(src: &mut Bytes) -> Self {
         src.get_u32()
+    }
+}
+
+impl Serialize for i32 {
+    fn serialize(&self) -> Bytes {
+        let mut b = BytesMut::new();
+        b.put_i32(*self);
+        b.freeze()
+    }
+}
+
+impl Deserialize<Self> for i32 {
+    fn deserialize(src: &mut Bytes) -> Self {
+        src.get_i32()
     }
 }
 
