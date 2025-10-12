@@ -135,7 +135,7 @@ struct PartitionResponse {
 impl Serialize for PartitionResponse {
     fn serialize(&self) -> Bytes {
         let mut b = BytesMut::new();
-        b.put_i32(self.partition_index as i32);
+        b.put_i32(self.partition_index);
         b.put_i16(self.error_code.into());
         b.put_i64(self.base_offset);
         b.put_i64(self.log_append_time_ms);

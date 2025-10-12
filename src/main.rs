@@ -1,7 +1,6 @@
 use std::{
     collections::HashMap,
-    env,
-    fs,
+    env, fs,
     net::{IpAddr, Ipv4Addr, SocketAddr},
 };
 
@@ -69,7 +68,7 @@ async fn handle_conn(mut stream: TcpStream) -> Result<()> {
         let mut message = get_message(&mut stream).await?;
         let resp = process_message(&mut message)?;
         let resp_msg = create_response_message(resp.as_bytes());
-        stream.write(&resp_msg).await?;
+        stream.write_all(&resp_msg).await?;
     }
 }
 
