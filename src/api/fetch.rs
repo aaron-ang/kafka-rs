@@ -129,22 +129,22 @@ impl Serialize for TopicResponse {
 // ============================================================================
 
 struct Partition {
-    partition_index: u32,
-    current_leader_epoch: u32,
-    fetch_offset: u64,
-    last_fetched_epoch: u32,
-    log_start_offset: u64,
+    partition_index: i32,
+    current_leader_epoch: i32,
+    fetch_offset: i64,
+    last_fetched_epoch: i32,
+    log_start_offset: i64,
     partition_max_bytes: u32,
 }
 
 impl Deserialize<Self> for Partition {
     fn deserialize(src: &mut Bytes) -> Self {
         let partition = Partition {
-            partition_index: src.get_u32(),
-            current_leader_epoch: src.get_u32(),
-            fetch_offset: src.get_u64(),
-            last_fetched_epoch: src.get_u32(),
-            log_start_offset: src.get_u64(),
+            partition_index: src.get_i32(),
+            current_leader_epoch: src.get_i32(),
+            fetch_offset: src.get_i64(),
+            last_fetched_epoch: src.get_i32(),
+            log_start_offset: src.get_i64(),
             partition_max_bytes: src.get_u32(),
         };
         TagBuffer::deserialize(src);
@@ -153,7 +153,7 @@ impl Deserialize<Self> for Partition {
 }
 
 struct TopicPartition {
-    partition_index: u32,
+    partition_index: i32,
     error_code: ErrorCode,
     high_watermark: i64,
     last_stable_offset: i64,
@@ -165,7 +165,7 @@ struct TopicPartition {
 
 impl TopicPartition {
     fn new(
-        partition_index: u32,
+        partition_index: i32,
         error_code: ErrorCode,
         record_batches: CompactNullableBytes,
     ) -> Self {
@@ -185,7 +185,7 @@ impl TopicPartition {
 impl Serialize for TopicPartition {
     fn serialize(&self) -> Bytes {
         let mut b = BytesMut::new();
-        b.put_u32(self.partition_index);
+        b.put_i32(self.partition_index);
         b.put_i16(self.error_code.into());
         b.put_i64(self.high_watermark);
         b.put_i64(self.last_stable_offset);
