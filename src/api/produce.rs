@@ -1,13 +1,16 @@
+use std::{fs, io::Write};
+
 use anyhow::Result;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 
-use crate::cluster_metadata::RecordBatches;
+use crate::metadata::RecordBatches;
 use crate::protocol::*;
 
 // ============================================================================
 // MAIN REQUEST/RESPONSE STRUCTURES
 // ============================================================================
 
+#[derive(Debug)]
 struct ProduceRequestV11 {
     transactional_id: CompactNullableString,
     required_acks: i16,
@@ -31,6 +34,7 @@ impl Deserialize<Self> for ProduceRequestV11 {
     }
 }
 
+#[derive(Debug)]
 pub struct ProduceResponseV11 {
     header: HeaderV1,
     topics: CompactArray<TopicResponse>,
@@ -61,6 +65,7 @@ impl Response for ProduceResponseV11 {
 // TOPIC-LEVEL STRUCTURES
 // ============================================================================
 
+#[derive(Debug)]
 struct TopicRequest {
     topic_name: CompactString,
     partitions: Vec<PartitionRequest>,
@@ -78,6 +83,7 @@ impl Deserialize<Self> for TopicRequest {
     }
 }
 
+#[derive(Debug)]
 pub struct TopicResponse {
     topic_name: CompactString,
     partition_responses: CompactArray<PartitionResponse>,
@@ -97,6 +103,7 @@ impl Serialize for TopicResponse {
 // PARTITION-LEVEL STRUCTURES
 // ============================================================================
 
+#[derive(Debug)]
 struct PartitionRequest {
     partition_index: i32,
     record_batches: CompactNullableBytes,
@@ -114,6 +121,7 @@ impl Deserialize<Self> for PartitionRequest {
     }
 }
 
+#[derive(Debug)]
 struct PartitionResponse {
     partition_index: i32,
     error_code: ErrorCode,
@@ -142,6 +150,7 @@ impl Serialize for PartitionResponse {
 // ============================================================================
 // SUPPORTING STRUCTURES
 // ============================================================================
+#[derive(Debug)]
 struct RecordError {
     batch_index: i32,
     batch_index_error_message: CompactNullableString,
@@ -161,11 +170,23 @@ impl Serialize for RecordError {
 // REQUEST HANDLER
 // ============================================================================
 
+fn write_batch_to_log(batch_bytes: &Bytes, topic_name: &str, partition_index: i32) -> Result<()> {
+    let log_dir = format!("/tmp/kraft-combined-logs/{topic_name}-{partition_index}");
+    let log_file = format!("{log_dir}/00000000000000000000.log");
+    fs::create_dir_all(&log_dir)?;
+    fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_file)?
+        .write_all(batch_bytes)?;
+    Ok(())
+}
+
 pub fn handle_request(header: HeaderV2, message: &mut Bytes) -> Result<ProduceResponseV11> {
     let req = ProduceRequestV11::deserialize(message);
+    println!("request: {req:?}");
     let record_batches = RecordBatches::from_file(CLUSTER_METADATA_LOG_FILE)?;
     let mut responses = Vec::new();
-
     for topic in req.topics {
         let mut partitions = Vec::new();
         let topic_name = &topic.topic_name.0;
@@ -183,6 +204,19 @@ pub fn handle_request(header: HeaderV2, message: &mut Bytes) -> Result<ProduceRe
             } else {
                 ErrorCode::None
             };
+
+            if !has_error {
+                if let Some(record_batches_data) = &partition.record_batches.0 {
+                    if let Err(e) = write_batch_to_log(
+                        record_batches_data,
+                        topic_name,
+                        partition.partition_index,
+                    ) {
+                        eprintln!("Failed to write records to log: {e}");
+                    }
+                }
+            }
+
             let partition_response = PartitionResponse {
                 partition_index: partition.partition_index,
                 error_code,

@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
-    env, fs,
+    env,
+    fs,
     net::{IpAddr, Ipv4Addr, SocketAddr},
 };
 
@@ -68,7 +69,6 @@ async fn handle_conn(mut stream: TcpStream) -> Result<()> {
         let mut message = get_message(&mut stream).await?;
         let resp = process_message(&mut message)?;
         let resp_msg = create_response_message(resp.as_bytes());
-        println!("response: {:?}", resp_msg.to_vec());
         stream.write(&resp_msg).await?;
     }
 }
@@ -92,10 +92,9 @@ fn process_message(message: &mut Bytes) -> Result<Box<dyn Response + Send>> {
             return Err(anyhow!("Invalid request api key, {:?}", header.api_key));
         }
     };
-    println!("request: {:?}", message.to_vec());
     let response: Box<dyn Response + Send> = match request_api_key {
         ApiKey::ApiVersions => {
-            let res = api_versions::ApiVersionsResponseV3::new(header);
+            let res = api_versions::handle_request(header);
             Box::new(res)
         }
         ApiKey::DescribeTopicPartitions => {
@@ -111,6 +110,7 @@ fn process_message(message: &mut Bytes) -> Result<Box<dyn Response + Send>> {
             Box::new(res)
         }
     };
+    println!("response: {}", response.debug_string());
     Ok(response)
 }
 

@@ -7,8 +7,12 @@ use num_enum::{IntoPrimitive, TryFromPrimitive};
 pub const CLUSTER_METADATA_LOG_FILE: &str =
     "/tmp/kraft-combined-logs/__cluster_metadata-0/00000000000000000000.log";
 
-pub trait Response {
+pub trait Response: std::fmt::Debug {
     fn as_bytes(&self) -> Bytes;
+
+    fn debug_string(&self) -> String {
+        format!("{self:?}")
+    }
 }
 
 pub trait Serialize {
@@ -19,7 +23,7 @@ pub trait Deserialize<T> {
     fn deserialize(src: &mut Bytes) -> T;
 }
 
-#[derive(Clone, Copy, IntoPrimitive, TryFromPrimitive)]
+#[derive(Debug, Clone, Copy, IntoPrimitive, TryFromPrimitive)]
 #[repr(i16)]
 pub enum ApiKey {
     Produce = 0,
@@ -37,6 +41,7 @@ pub enum ErrorCode {
     UnknownTopicId = 100,
 }
 
+#[derive(Debug)]
 pub struct HeaderV0 {
     correlation_id: i32,
 }
@@ -127,7 +132,7 @@ impl Deserialize<Self> for Uuid {
     }
 }
 
-#[derive(Clone, PartialEq, PartialOrd, Ord, Eq)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq)]
 pub struct CompactString(pub String);
 
 impl Serialize for CompactString {
@@ -245,6 +250,7 @@ where
     }
 }
 
+#[derive(Debug)]
 pub struct CompactNullableBytes(pub Option<Bytes>);
 
 impl Serialize for CompactNullableBytes {

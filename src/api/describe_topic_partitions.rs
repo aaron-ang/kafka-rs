@@ -3,11 +3,12 @@ use std::collections::BTreeSet;
 use anyhow::Result;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 
-use crate::cluster_metadata::{RecordBatches, RecordValue};
+use crate::metadata::{RecordBatches, RecordValue};
 use crate::protocol::*;
 
 const DEFAULT_UNKNOWN_TOPIC_UUID: &str = "00000000-0000-0000-0000-000000000000";
 
+#[derive(Debug)]
 struct DescribeTopicPartitionsRequestV0 {
     topic_names: Vec<CompactString>,
     response_partition_limit: i32,
@@ -151,27 +152,25 @@ pub fn handle_request(
     header: HeaderV2,
     message: &mut Bytes,
 ) -> Result<DescribeTopicPartitionsResponseV0> {
+    let req = DescribeTopicPartitionsRequestV0::deserialize(message);
+    println!("request: {req:?}");
     let record_batches = RecordBatches::from_file(CLUSTER_METADATA_LOG_FILE)?;
     let topic_authorized_operations = 0x0DF;
-    let req = DescribeTopicPartitionsRequestV0::deserialize(message);
     let mut topics = Vec::new();
-
-    // Process each requested topic
     for topic_name in req.topic_names.iter().collect::<BTreeSet<_>>() {
         let mut partitions = Vec::new();
         let mut topic_id = Uuid(DEFAULT_UNKNOWN_TOPIC_UUID.to_string());
         let mut topic_error_code = ErrorCode::UnknownTopicOrPartition;
 
-        // Search through all record batches for this topic
         for record_batch in record_batches.batches() {
             for rec in &record_batch.records {
-                if let RecordValue::Topic(ref topic) = rec.value {
+                if let RecordValue::Topic(ref topic) = rec.value() {
                     if topic.topic_name == *topic_name {
                         topic_id = topic.topic_id.clone();
                         topic_error_code = ErrorCode::None;
                     }
                 }
-                if let RecordValue::Partition(p) = &rec.value {
+                if let RecordValue::Partition(p) = &rec.value() {
                     if p.topic_id == topic_id {
                         partitions.push(Partition::new(
                             ErrorCode::None,

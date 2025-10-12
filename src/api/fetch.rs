@@ -1,13 +1,14 @@
 use anyhow::{Context, Result};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 
-use crate::cluster_metadata::RecordBatches;
+use crate::metadata::RecordBatches;
 use crate::protocol::*;
 
 // ============================================================================
 // MAIN REQUEST/RESPONSE STRUCTURES
 // ============================================================================
 
+#[derive(Debug)]
 struct FetchRequestV16 {
     max_wait_ms: u32,
     min_bytes: u32,
@@ -47,6 +48,7 @@ impl Deserialize<Self> for FetchRequestV16 {
     }
 }
 
+#[derive(Debug)]
 pub struct FetchResponseV16 {
     header: HeaderV1,
     throttle_time_ms: i32,
@@ -83,6 +85,7 @@ impl Response for FetchResponseV16 {
 // TOPIC-LEVEL STRUCTURES
 // ============================================================================
 
+#[derive(Debug)]
 struct TopicRequest {
     topic_id: Uuid,
     partitions: Vec<Partition>,
@@ -100,6 +103,7 @@ impl Deserialize<Self> for TopicRequest {
     }
 }
 
+#[derive(Debug)]
 struct TopicResponse {
     topic_id: Uuid,
     partitions: CompactArray<TopicPartition>,
@@ -128,6 +132,7 @@ impl Serialize for TopicResponse {
 // PARTITION-LEVEL STRUCTURES
 // ============================================================================
 
+#[derive(Debug)]
 struct Partition {
     partition_index: i32,
     current_leader_epoch: i32,
@@ -152,6 +157,7 @@ impl Deserialize<Self> for Partition {
     }
 }
 
+#[derive(Debug)]
 struct TopicPartition {
     partition_index: i32,
     error_code: ErrorCode,
@@ -202,6 +208,7 @@ impl Serialize for TopicPartition {
 // SUPPORTING STRUCTURES
 // ============================================================================
 
+#[derive(Debug)]
 struct ForgottenTopicData {
     topic_id: Uuid,
     partitions: Vec<u32>, // The partitions indexes to forget.
@@ -218,6 +225,7 @@ impl Deserialize<Self> for ForgottenTopicData {
     }
 }
 
+#[derive(Debug)]
 struct AbortedTransaction {
     producer_id: u64,
     first_offset: u64,
@@ -235,31 +243,24 @@ impl Serialize for AbortedTransaction {
 
 pub fn handle_request(header: HeaderV2, message: &mut Bytes) -> Result<FetchResponseV16> {
     let req = FetchRequestV16::deserialize(message);
-    let record_batches = (!req.topics.is_empty())
-        .then(|| RecordBatches::from_file(CLUSTER_METADATA_LOG_FILE))
-        .transpose()?;
+    println!("request: {req:?}");
     let mut responses = Vec::new();
-
     for topic_req in req.topics {
+        let record_batches = RecordBatches::from_file(CLUSTER_METADATA_LOG_FILE)?;
         let topic_id = topic_req.topic_id.clone();
         let mut error_code = ErrorCode::UnknownTopicId;
         let mut partitions = Vec::new();
 
         for partition in topic_req.partitions {
             let partition_id = partition.partition_index;
-            let partition_record_batches = match record_batches {
-                Some(ref batches) => {
-                    match batches
-                        .raw_batch_for_topic(&topic_id, partition_id)
-                        .context(format!(
-                            "read messages for topic '{topic_id}' in partition '{partition_id}'"
-                        ))? {
-                        Some(raw_batch) => {
-                            error_code = ErrorCode::None;
-                            CompactNullableBytes(Some(raw_batch))
-                        }
-                        None => CompactNullableBytes(None),
-                    }
+            let partition_record_batches = match record_batches
+                .raw_batch_for_topic(&topic_id, partition_id)
+                .context(format!(
+                    "read messages for topic '{topic_id}' in partition '{partition_id}'"
+                ))? {
+                Some(raw_batch) => {
+                    error_code = ErrorCode::None;
+                    CompactNullableBytes(Some(raw_batch))
                 }
                 None => CompactNullableBytes(None),
             };

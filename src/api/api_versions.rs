@@ -2,31 +2,7 @@ use bytes::{BufMut, Bytes, BytesMut};
 
 use crate::protocol::*;
 
-fn get_api_keys() -> Vec<ApiVersionsApiKey> {
-    vec![
-        ApiVersionsApiKey {
-            key: ApiKey::Produce,
-            min_version: 0,
-            max_version: 11,
-        },
-        ApiVersionsApiKey {
-            key: ApiKey::Fetch,
-            min_version: 0,
-            max_version: 16,
-        },
-        ApiVersionsApiKey {
-            key: ApiKey::ApiVersions,
-            min_version: 0,
-            max_version: 4,
-        },
-        ApiVersionsApiKey {
-            key: ApiKey::DescribeTopicPartitions,
-            min_version: 0,
-            max_version: 0,
-        },
-    ]
-}
-
+#[derive(Debug)]
 pub struct ApiVersionsResponseV3 {
     header: HeaderV0,
     error_code: ErrorCode,
@@ -63,7 +39,7 @@ impl Response for ApiVersionsResponseV3 {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug)]
 struct ApiVersionsApiKey {
     key: ApiKey,
     min_version: i16,
@@ -79,4 +55,33 @@ impl Serialize for ApiVersionsApiKey {
         b.put(TagBuffer::serialize());
         b.freeze()
     }
+}
+
+fn get_api_keys() -> Vec<ApiVersionsApiKey> {
+    vec![
+        ApiVersionsApiKey {
+            key: ApiKey::Produce,
+            min_version: 0,
+            max_version: 11,
+        },
+        ApiVersionsApiKey {
+            key: ApiKey::Fetch,
+            min_version: 0,
+            max_version: 16,
+        },
+        ApiVersionsApiKey {
+            key: ApiKey::ApiVersions,
+            min_version: 0,
+            max_version: 4,
+        },
+        ApiVersionsApiKey {
+            key: ApiKey::DescribeTopicPartitions,
+            min_version: 0,
+            max_version: 0,
+        },
+    ]
+}
+
+pub fn handle_request(header: HeaderV2) -> ApiVersionsResponseV3 {
+    ApiVersionsResponseV3::new(header)
 }
