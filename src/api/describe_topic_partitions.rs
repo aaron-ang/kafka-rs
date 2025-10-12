@@ -9,7 +9,7 @@ use crate::protocol::*;
 const DEFAULT_UNKNOWN_TOPIC_UUID: &str = "00000000-0000-0000-0000-000000000000";
 
 #[derive(Debug)]
-struct DescribeTopicPartitionsRequestV0 {
+pub struct DescribeTopicPartitionsRequestV0 {
     topic_names: Vec<CompactString>,
     response_partition_limit: i32,
     cursor: u8,
@@ -57,6 +57,63 @@ impl Response for DescribeTopicPartitionsResponseV0 {
         bytes.put_u8(self.next_cursor);
         bytes.put(TagBuffer::serialize());
         bytes.freeze()
+    }
+}
+
+impl ApiHandler for DescribeTopicPartitionsResponseV0 {
+    type Request = DescribeTopicPartitionsRequestV0;
+
+    fn decode_request(_header: &HeaderV2, message: &mut Bytes) -> Result<Self::Request> {
+        Ok(DescribeTopicPartitionsRequestV0::deserialize(message))
+    }
+
+    fn create_response(header: HeaderV2, request: Self::Request) -> Result<Self> {
+        let record_batches = RecordBatches::from_file(CLUSTER_METADATA_LOG_FILE)?;
+        let topic_authorized_operations = 0x0DF;
+        let mut topics = Vec::new();
+
+        for topic_name in request.topic_names.iter().collect::<BTreeSet<_>>() {
+            let mut partitions = Vec::new();
+            let mut topic_id = Uuid(DEFAULT_UNKNOWN_TOPIC_UUID.to_string());
+            let mut topic_error_code = ErrorCode::UnknownTopicOrPartition;
+
+            for record_batch in record_batches.batches() {
+                for rec in &record_batch.records {
+                    if let RecordValue::Topic(ref topic) = rec.value() {
+                        if topic.topic_name == *topic_name {
+                            topic_id = topic.topic_id.clone();
+                            topic_error_code = ErrorCode::None;
+                        }
+                    }
+                    if let RecordValue::Partition(p) = &rec.value() {
+                        if p.topic_id == topic_id {
+                            partitions.push(Partition::new(
+                                ErrorCode::None,
+                                p.partition_id,
+                                p.leader_id,
+                                p.leader_epoch,
+                                p.replicas.clone(),
+                                p.in_sync_replicas.clone(),
+                                p.adding_replicas.clone(),
+                                Vec::new(),
+                                p.removing_replicas.clone(),
+                            ));
+                        }
+                    }
+                }
+            }
+
+            topics.push(Topic {
+                error_code: topic_error_code,
+                name: topic_name.clone().into(),
+                topic_id: topic_id.clone(),
+                is_internal: false,
+                partitions: CompactArray(partitions),
+                topic_authorized_operations,
+            });
+        }
+
+        Ok(Self::new(header.correlation_id, topics))
     }
 }
 
@@ -146,60 +203,4 @@ impl Serialize for Partition {
         b.put(TagBuffer::serialize());
         b.freeze()
     }
-}
-
-pub fn handle_request(
-    header: HeaderV2,
-    message: &mut Bytes,
-) -> Result<DescribeTopicPartitionsResponseV0> {
-    let req = DescribeTopicPartitionsRequestV0::deserialize(message);
-    println!("request: {req:?}");
-    let record_batches = RecordBatches::from_file(CLUSTER_METADATA_LOG_FILE)?;
-    let topic_authorized_operations = 0x0DF;
-    let mut topics = Vec::new();
-    for topic_name in req.topic_names.iter().collect::<BTreeSet<_>>() {
-        let mut partitions = Vec::new();
-        let mut topic_id = Uuid(DEFAULT_UNKNOWN_TOPIC_UUID.to_string());
-        let mut topic_error_code = ErrorCode::UnknownTopicOrPartition;
-
-        for record_batch in record_batches.batches() {
-            for rec in &record_batch.records {
-                if let RecordValue::Topic(ref topic) = rec.value() {
-                    if topic.topic_name == *topic_name {
-                        topic_id = topic.topic_id.clone();
-                        topic_error_code = ErrorCode::None;
-                    }
-                }
-                if let RecordValue::Partition(p) = &rec.value() {
-                    if p.topic_id == topic_id {
-                        partitions.push(Partition::new(
-                            ErrorCode::None,
-                            p.partition_id,
-                            p.leader_id,
-                            p.leader_epoch,
-                            p.replicas.clone(),
-                            p.in_sync_replicas.clone(),
-                            p.adding_replicas.clone(),
-                            Vec::new(),
-                            p.removing_replicas.clone(),
-                        ));
-                    }
-                }
-            }
-        }
-
-        topics.push(Topic {
-            error_code: topic_error_code,
-            name: topic_name.clone().into(),
-            topic_id: topic_id.clone(),
-            is_internal: false,
-            partitions: CompactArray(partitions),
-            topic_authorized_operations,
-        });
-    }
-
-    Ok(DescribeTopicPartitionsResponseV0::new(
-        header.correlation_id,
-        topics,
-    ))
 }

@@ -91,25 +91,15 @@ fn process_message(message: &mut Bytes) -> Result<Box<dyn Response + Send>> {
             return Err(anyhow!("Invalid request api key, {:?}", header.api_key));
         }
     };
+
     let response: Box<dyn Response + Send> = match request_api_key {
-        ApiKey::ApiVersions => {
-            let res = api_versions::handle_request(header);
-            Box::new(res)
-        }
-        ApiKey::DescribeTopicPartitions => {
-            let res = describe_topic_partitions::handle_request(header, message)?;
-            Box::new(res)
-        }
-        ApiKey::Fetch => {
-            let res = fetch::handle_request(header, message)?;
-            Box::new(res)
-        }
-        ApiKey::Produce => {
-            let res = produce::handle_request(header, message)?;
-            Box::new(res)
-        }
+        ApiKey::ApiVersions => Box::new(ApiVersionsResponseV3::from_request(header, message)?),
+        ApiKey::DescribeTopicPartitions => Box::new(
+            DescribeTopicPartitionsResponseV0::from_request(header, message)?,
+        ),
+        ApiKey::Fetch => Box::new(FetchResponseV16::from_request(header, message)?),
+        ApiKey::Produce => Box::new(ProduceResponseV11::from_request(header, message)?),
     };
-    println!("response: {}", response.debug_string());
     Ok(response)
 }
 

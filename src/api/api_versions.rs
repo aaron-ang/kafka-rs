@@ -1,6 +1,10 @@
+use anyhow::Result;
 use bytes::{BufMut, Bytes, BytesMut};
 
 use crate::protocol::*;
+
+#[derive(Debug)]
+pub struct ApiVersionsRequestV3;
 
 #[derive(Debug)]
 pub struct ApiVersionsResponseV3 {
@@ -36,6 +40,18 @@ impl Response for ApiVersionsResponseV3 {
         bytes.put_i32(self.throttle_time_ms);
         bytes.put(TagBuffer::serialize());
         bytes.freeze()
+    }
+}
+
+impl ApiHandler for ApiVersionsResponseV3 {
+    type Request = ApiVersionsRequestV3;
+
+    fn decode_request(_header: &HeaderV2, _message: &mut Bytes) -> Result<Self::Request> {
+        Ok(ApiVersionsRequestV3)
+    }
+
+    fn create_response(header: HeaderV2, _request: Self::Request) -> Result<Self> {
+        Ok(Self::new(header))
     }
 }
 
@@ -80,8 +96,4 @@ fn get_api_keys() -> Vec<ApiVersionsApiKey> {
             max_version: 0,
         },
     ]
-}
-
-pub fn handle_request(header: HeaderV2) -> ApiVersionsResponseV3 {
-    ApiVersionsResponseV3::new(header)
 }

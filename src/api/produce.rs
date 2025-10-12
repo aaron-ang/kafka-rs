@@ -11,7 +11,7 @@ use crate::protocol::*;
 // ============================================================================
 
 #[derive(Debug)]
-struct ProduceRequestV11 {
+pub struct ProduceRequestV11 {
     transactional_id: CompactNullableString,
     required_acks: i16,
     timeout_ms: i32,
@@ -58,6 +58,69 @@ impl Response for ProduceResponseV11 {
         bytes.put_i32(self.throttle_time_ms);
         bytes.put(TagBuffer::serialize());
         bytes.freeze()
+    }
+}
+
+impl ApiHandler for ProduceResponseV11 {
+    type Request = ProduceRequestV11;
+
+    fn decode_request(_header: &HeaderV2, message: &mut Bytes) -> Result<Self::Request> {
+        Ok(ProduceRequestV11::deserialize(message))
+    }
+
+    fn create_response(header: HeaderV2, request: Self::Request) -> Result<Self> {
+        let record_batches = RecordBatches::from_file(CLUSTER_METADATA_LOG_FILE)?;
+        let mut responses = Vec::new();
+        
+        for topic in request.topics {
+            let mut partitions = Vec::new();
+            let topic_name = &topic.topic_name.0;
+            let topic_uuid = record_batches.find_topic_id(topic_name);
+
+            for partition in topic.partitions {
+                let partition_exists = if let Some(ref uuid) = topic_uuid {
+                    record_batches.validate_partition(uuid, partition.partition_index)
+                } else {
+                    false
+                };
+                let has_error = topic_uuid.is_none() || !partition_exists;
+                let error_code = if has_error {
+                    ErrorCode::UnknownTopicOrPartition
+                } else {
+                    ErrorCode::None
+                };
+
+                if !has_error {
+                    if let Some(record_batches_data) = &partition.record_batches.0 {
+                        if let Err(e) = write_batch_to_log(
+                            record_batches_data,
+                            topic_name,
+                            partition.partition_index,
+                        ) {
+                            eprintln!("Failed to write records to log: {e}");
+                        }
+                    }
+                }
+
+                let partition_response = PartitionResponse {
+                    partition_index: partition.partition_index,
+                    error_code,
+                    base_offset: if has_error { -1 } else { 0 },
+                    log_append_time_ms: -1, // latest timestamp
+                    log_start_offset: if has_error { -1 } else { 0 },
+                    record_errors: CompactArray(Vec::new()),
+                    error_message: CompactNullableString(None),
+                };
+                partitions.push(partition_response);
+            }
+            let topic_response = TopicResponse {
+                topic_name: topic.topic_name,
+                partition_responses: CompactArray(partitions),
+            };
+            responses.push(topic_response);
+        }
+        
+        Ok(Self::new(header, responses))
     }
 }
 
@@ -167,7 +230,7 @@ impl Serialize for RecordError {
 }
 
 // ============================================================================
-// REQUEST HANDLER
+// HELPER FUNCTIONS
 // ============================================================================
 
 fn write_batch_to_log(batch_bytes: &Bytes, topic_name: &str, partition_index: i32) -> Result<()> {
@@ -180,59 +243,4 @@ fn write_batch_to_log(batch_bytes: &Bytes, topic_name: &str, partition_index: i3
         .open(&log_file)?
         .write_all(batch_bytes)?;
     Ok(())
-}
-
-pub fn handle_request(header: HeaderV2, message: &mut Bytes) -> Result<ProduceResponseV11> {
-    let req = ProduceRequestV11::deserialize(message);
-    println!("request: {req:?}");
-    let record_batches = RecordBatches::from_file(CLUSTER_METADATA_LOG_FILE)?;
-    let mut responses = Vec::new();
-    for topic in req.topics {
-        let mut partitions = Vec::new();
-        let topic_name = &topic.topic_name.0;
-        let topic_uuid = record_batches.find_topic_id(topic_name);
-
-        for partition in topic.partitions {
-            let partition_exists = if let Some(ref uuid) = topic_uuid {
-                record_batches.validate_partition(uuid, partition.partition_index)
-            } else {
-                false
-            };
-            let has_error = topic_uuid.is_none() || !partition_exists;
-            let error_code = if has_error {
-                ErrorCode::UnknownTopicOrPartition
-            } else {
-                ErrorCode::None
-            };
-
-            if !has_error {
-                if let Some(record_batches_data) = &partition.record_batches.0 {
-                    if let Err(e) = write_batch_to_log(
-                        record_batches_data,
-                        topic_name,
-                        partition.partition_index,
-                    ) {
-                        eprintln!("Failed to write records to log: {e}");
-                    }
-                }
-            }
-
-            let partition_response = PartitionResponse {
-                partition_index: partition.partition_index,
-                error_code,
-                base_offset: if has_error { -1 } else { 0 },
-                log_append_time_ms: -1, // latest timestamp
-                log_start_offset: if has_error { -1 } else { 0 },
-                record_errors: CompactArray(Vec::new()),
-                error_message: CompactNullableString(None),
-            };
-            partitions.push(partition_response);
-        }
-        let topic_response = TopicResponse {
-            topic_name: topic.topic_name,
-            partition_responses: CompactArray(partitions),
-        };
-        responses.push(topic_response);
-    }
-    Ok(ProduceResponseV11::new(header, responses))
 }

@@ -9,7 +9,7 @@ use crate::protocol::*;
 // ============================================================================
 
 #[derive(Debug)]
-struct FetchRequestV16 {
+pub struct FetchRequestV16 {
     max_wait_ms: u32,
     min_bytes: u32,
     max_bytes: u32,
@@ -78,6 +78,48 @@ impl Response for FetchResponseV16 {
         bytes.put(self.responses.serialize());
         bytes.put(TagBuffer::serialize());
         bytes.freeze()
+    }
+}
+
+impl ApiHandler for FetchResponseV16 {
+    type Request = FetchRequestV16;
+
+    fn decode_request(_header: &HeaderV2, message: &mut Bytes) -> Result<Self::Request> {
+        Ok(FetchRequestV16::deserialize(message))
+    }
+
+    fn create_response(header: HeaderV2, request: Self::Request) -> Result<Self> {
+        let mut responses = Vec::new();
+        for topic_req in request.topics {
+            let record_batches = RecordBatches::from_file(CLUSTER_METADATA_LOG_FILE)?;
+            let topic_id = topic_req.topic_id.clone();
+            let mut error_code = ErrorCode::UnknownTopicId;
+            let mut partitions = Vec::new();
+
+            for partition in topic_req.partitions {
+                let partition_id = partition.partition_index;
+                let partition_record_batches = match record_batches
+                    .raw_batch_for_topic(&topic_id, partition_id)
+                    .context(format!(
+                        "read messages for topic '{topic_id}' in partition '{partition_id}'"
+                    ))? {
+                    Some(raw_batch) => {
+                        error_code = ErrorCode::None;
+                        CompactNullableBytes(Some(raw_batch))
+                    }
+                    None => CompactNullableBytes(None),
+                };
+                let partition = TopicPartition::new(partition_id, error_code, partition_record_batches);
+                partitions.push(partition);
+            }
+            responses.push(TopicResponse::new(topic_req.topic_id.0, partitions));
+        }
+
+        Ok(Self::new(
+            header.correlation_id,
+            request.session_id,
+            responses,
+        ))
     }
 }
 
@@ -237,42 +279,3 @@ impl Serialize for AbortedTransaction {
     }
 }
 
-// ============================================================================
-// REQUEST HANDLER
-// ============================================================================
-
-pub fn handle_request(header: HeaderV2, message: &mut Bytes) -> Result<FetchResponseV16> {
-    let req = FetchRequestV16::deserialize(message);
-    println!("request: {req:?}");
-    let mut responses = Vec::new();
-    for topic_req in req.topics {
-        let record_batches = RecordBatches::from_file(CLUSTER_METADATA_LOG_FILE)?;
-        let topic_id = topic_req.topic_id.clone();
-        let mut error_code = ErrorCode::UnknownTopicId;
-        let mut partitions = Vec::new();
-
-        for partition in topic_req.partitions {
-            let partition_id = partition.partition_index;
-            let partition_record_batches = match record_batches
-                .raw_batch_for_topic(&topic_id, partition_id)
-                .context(format!(
-                    "read messages for topic '{topic_id}' in partition '{partition_id}'"
-                ))? {
-                Some(raw_batch) => {
-                    error_code = ErrorCode::None;
-                    CompactNullableBytes(Some(raw_batch))
-                }
-                None => CompactNullableBytes(None),
-            };
-            let partition = TopicPartition::new(partition_id, error_code, partition_record_batches);
-            partitions.push(partition);
-        }
-        responses.push(TopicResponse::new(topic_req.topic_id.0, partitions));
-    }
-
-    Ok(FetchResponseV16::new(
-        header.correlation_id,
-        req.session_id,
-        responses,
-    ))
-}

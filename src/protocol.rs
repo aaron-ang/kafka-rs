@@ -1,5 +1,6 @@
 use std::fmt::Display;
 
+use anyhow::Result;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use integer_encoding::*;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
@@ -9,9 +10,21 @@ pub const CLUSTER_METADATA_LOG_FILE: &str =
 
 pub trait Response: std::fmt::Debug {
     fn as_bytes(&self) -> Bytes;
+}
 
-    fn debug_string(&self) -> String {
-        format!("{self:?}")
+pub trait ApiHandler: Sized + Response {
+    type Request: std::fmt::Debug;
+
+    fn decode_request(header: &HeaderV2, message: &mut Bytes) -> Result<Self::Request>;
+
+    fn create_response(header: HeaderV2, request: Self::Request) -> Result<Self>;
+
+    fn from_request(header: HeaderV2, message: &mut Bytes) -> Result<Self> {
+        let request = Self::decode_request(&header, message)?;
+        println!("request: {request:?}");
+        let response = Self::create_response(header, request)?;
+        println!("response: {response:?}");
+        Ok(response)
     }
 }
 
