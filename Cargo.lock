@@ -108,7 +108,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "kafka-starter-rust"
+name = "kafka-rs"
 version = "0.1.0"
 dependencies = [
  "anyhow",

@@ -8,4 +8,4 @@
 
 set -e # Exit on failure
 
-exec /tmp/codecrafters-kafka-target/release/kafka-starter-rust "$@"
+exec /tmp/codecrafters-kafka-target/release/kafka-rs "$@"

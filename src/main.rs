@@ -11,7 +11,7 @@ use tokio::{
     net::{TcpListener, TcpStream},
 };
 
-use kafka_starter_rust::*;
+use kafka_rs::*;
 
 const PORT: &str = "9092";
 
